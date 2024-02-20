@@ -1,12 +1,16 @@
 import * as readline from 'readline';
 import * as stream from 'stream'
+import * as fs from 'fs';
 import { logger } from 'main';
-import { Admonition, Asset, Size } from "./types";
+import { Admonition, Asset, Size, SourceFileInfo } from "./types";
 import { config } from 'config';
+import FileProcessor from './fileProcessor';
 
 
-export default async function processMarkdown(processedFileName: string, sourceContent: string, assetJson: Asset[]): Promise<string> {
+
+export default async function processMarkdown(processedFileName: string, sourceContent: string, assetJson: Asset[], fileInfo : Partial<SourceFileInfo>[]): Promise<string> {
     // Create a stream from the source content
+
     const sourceStream = new stream.Readable();
     sourceStream.push(sourceContent);
     sourceStream.push(null);
@@ -23,10 +27,21 @@ export default async function processMarkdown(processedFileName: string, sourceC
     let inAdmonition = false, inQuote = false;
     let admonition = { type: '', title: '', whitespaces: 0 };
 
+	//create a file processor
+	const fileProcessor = new FileProcessor(fileInfo);
+	
+
+
+	console.log("ENWJFNEWIFENN");
+	//iterate over fileInfo and print all file names
+	for (const file of fileInfo) {
+		console.log("DEBUG " + file.fileName);
+	}
+
     // Iterate over the lines
     for await (const line of rl) {
 
-        let processedLine = await convertObsidianLinks(line);
+        let processedLine = await convertObsidianLinks(line, fileProcessor);
         processedLine = checkForAssets(processedLine, processedFileName, assetJson);
         processedLine = checkForLinks(processedLine);
         [processedLine, inAdmonition, inQuote, admonition] = convertAdmonition(processedLine, inAdmonition, inQuote, admonition);
@@ -39,18 +54,62 @@ export default async function processMarkdown(processedFileName: string, sourceC
     return transformedContent;
 }
 
-async function convertObsidianLinks(line: string) {
+async function convertObsidianLinks(line: string, fileProcessor : FileProcessor) {
 
-    const pattern = new RegExp(`!\\[\\[(${config.docusaurusAssetSubfolderName}/.*?)\\]\\]`);
+	
+
+    const pattern = /(?:!)?\[\[(.*?)\]\]/;
     const match = line.match(pattern);
 
-    if (match !== null) {
-        const newPath = `![](${match[1]})`;
-        return line.replace(match[0], newPath);
+    // if (match !== null) {
+    //     const newPath = ![](${match[1]})`;
+    //     return line.replace(match[0], newPath);
+		
+    // } else {
+	// 	console.log(config.docusaurusAssetSubfolderName);
+    //     return line;
+    // }
+	if (match !== null) {
+		console.log("Found link: ");
+		for (const m of match) {
+			console.log(m);
+		}
 
-    } else {
-        return line;
-    }
+		//need to split match[1] by '|' to get the filename and the title
+		const split = match[1].split("|");
+
+		
+		
+		//filename is the first part of the split
+		let filenameWithExtension : string = split[0];
+
+
+		let title : string | undefined = split.last();
+
+		//we need to add .md to match[1] to get the file name (if it doesnt have it already)
+		if (!split[0].endsWith(".md")) {
+			filenameWithExtension += ".md";
+		}
+
+		//call the file processor to get the path of the file
+		console.log("Filename with extension: " + filenameWithExtension);
+		const newPath = fileProcessor.getPathOfFile(filenameWithExtension);
+
+
+		if (newPath !== undefined) {
+			const newLine = line.replace(match[0], `[${title}](${newPath})`);
+
+			console.log("Old line: " + line);
+			console.log("New line: " + newLine);
+
+			//TODO: change next line
+			return newLine;
+		} else {
+			return line;
+		}
+	}
+
+	return line;
 }
 
 const parseAdmonitionData = (line: string): Admonition => {
@@ -285,4 +344,33 @@ function processImage(line: string, fileName: string, fileExtension: string, siz
 function processAsset(line: string, fileName: string, fileExtension: string) {
     line = `[Download ${fileName}.${fileExtension}](${config.docusaurusAssetSubfolderName}/${fileName}.${fileExtension})`;
     return line;
+}
+
+
+function searchFile(fileName: string, directory: string): string | null {
+    try {
+        const files = fs.readdirSync(directory);
+
+        for (const file of files) {
+            const fullPath = `${directory}/${file}`;
+
+            if (fs.statSync(fullPath).isDirectory()) {
+                // If it's a directory, recursively search inside the directory
+                const result = searchFile(fileName, fullPath);
+                if (result) {
+                    return result;
+                }
+            } else if (file === fileName) {
+                // If it's a file with the specified name, return the full path
+                return fullPath;
+            }
+        }
+
+        // File not found
+        return null;
+    } catch (error) {
+        // Handle errors such as permission issues or non-existent directories
+        console.error(`Error while searching for ${fileName}: ${error.message}`);
+        return null;
+    }
 }

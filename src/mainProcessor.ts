@@ -39,6 +39,7 @@ export default async function obsidiosaurusProcess(
 	const allSourceFilesInfo: Partial<SourceFileInfo>[] = allInfo.filter(
 		(info) => info.type !== "assets"
 	);
+
 	const allSourceAssetsInfo: Partial<SourceFileInfo>[] = allInfo.filter(
 		(info) => info.type === "assets"
 	);
@@ -784,7 +785,8 @@ async function copyMarkdownFilesToTarget(
 			const transformedContent = await processMarkdown(
 				pathSourceRelative,
 				sourceContent,
-				assetJson
+				assetJson,
+				targetJson
 			);
 			if (transformedContent) {
 				await fs.promises.writeFile(
