@@ -31,13 +31,6 @@ export default async function processMarkdown(processedFileName: string, sourceC
 	const fileProcessor = new FileProcessor(fileInfo);
 	
 
-
-	console.log("ENWJFNEWIFENN");
-	//iterate over fileInfo and print all file names
-	for (const file of fileInfo) {
-		console.log("DEBUG " + file.fileName);
-	}
-
     // Iterate over the lines
     for await (const line of rl) {
 
@@ -61,19 +54,8 @@ async function convertObsidianLinks(line: string, fileProcessor : FileProcessor)
     const pattern = /(?:!)?\[\[(.*?)\]\]/;
     const match = line.match(pattern);
 
-    // if (match !== null) {
-    //     const newPath = ![](${match[1]})`;
-    //     return line.replace(match[0], newPath);
-		
-    // } else {
-	// 	console.log(config.docusaurusAssetSubfolderName);
-    //     return line;
-    // }
+
 	if (match !== null) {
-		console.log("Found link: ");
-		for (const m of match) {
-			console.log(m);
-		}
 
 		//need to split match[1] by '|' to get the filename and the title
 		const split = match[1].split("|");
@@ -92,17 +74,14 @@ async function convertObsidianLinks(line: string, fileProcessor : FileProcessor)
 		}
 
 		//call the file processor to get the path of the file
-		console.log("Filename with extension: " + filenameWithExtension);
 		const newPath = fileProcessor.getPathOfFile(filenameWithExtension);
 
 
 		if (newPath !== undefined) {
 			const newLine = line.replace(match[0], `[${title}](${newPath})`);
 
-			console.log("Old line: " + line);
-			console.log("New line: " + newLine);
+			console.log("Converted link: " + line + " to " + newLine);
 
-			//TODO: change next line
 			return newLine;
 		} else {
 			return line;
