@@ -93,7 +93,8 @@ export default async function obsidiosaurusProcess(
 			filesToMarkdownProcess,
 			basePath,
 			targetJson,
-			assetJson
+			assetJson,
+			allSourceAssetsInfo
 		);
 
 		// Write new allFilesInfo -> Used to compare for next run
@@ -118,7 +119,7 @@ export default async function obsidiosaurusProcess(
 			assetsToProcess
 		);
 	}
-
+	
 	// Delete unused markdown files from Docusaurus
 	deleteUnusedFiles(targetJson, websitePath);
 
@@ -143,7 +144,10 @@ export default async function obsidiosaurusProcess(
 async function initializeJsonFile(
 	filePath: string,
 	defaultContent: string = "[]"
+	
 ) {
+
+	console.log("Filepath: " + filePath);
 	let jsonContent = [];
 	try {
 		jsonContent = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
@@ -765,7 +769,8 @@ async function copyMarkdownFilesToTarget(
 	files: Partial<SourceFileInfo>[],
 	basePath: string,
 	targetJson: Partial<SourceFileInfo>[],
-	assetJson: Asset[]
+	assetJson: Asset[],
+	allSourceAssetsInfo: Partial<SourceFileInfo>[]
 ) {
 	const results: SourceFileInfo[] = [];
 
@@ -786,7 +791,8 @@ async function copyMarkdownFilesToTarget(
 				pathSourceRelative,
 				sourceContent,
 				assetJson,
-				targetJson
+				targetJson,
+				allSourceAssetsInfo
 			);
 			if (transformedContent) {
 				await fs.promises.writeFile(

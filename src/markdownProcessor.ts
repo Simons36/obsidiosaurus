@@ -4,11 +4,16 @@ import * as fs from 'fs';
 import { logger } from 'main';
 import { Admonition, Asset, Size, SourceFileInfo } from "./types";
 import { config } from 'config';
-import FileProcessor from './fileProcessor';
+import FileProcessor from './util/fileProcessor';
 
 
 
-export default async function processMarkdown(processedFileName: string, sourceContent: string, assetJson: Asset[], fileInfo : Partial<SourceFileInfo>[]): Promise<string> {
+export default async function processMarkdown(
+	processedFileName: string, 
+	sourceContent: string, 
+	assetJson: Asset[], 
+	fileInfo : Partial<SourceFileInfo>[], 
+	allSourceAssetsInfo : Partial<SourceFileInfo>[]): Promise<string> {
     // Create a stream from the source content
 
     const sourceStream = new stream.Readable();
@@ -28,14 +33,14 @@ export default async function processMarkdown(processedFileName: string, sourceC
     let admonition = { type: '', title: '', whitespaces: 0 };
 
 	//create a file processor
-	const fileProcessor = new FileProcessor(fileInfo);
+	const fileProcessor = new FileProcessor(fileInfo, allSourceAssetsInfo);
 	
 
     // Iterate over the lines
     for await (const line of rl) {
 
         let processedLine = await convertObsidianLinks(line, fileProcessor);
-        processedLine = checkForAssets(processedLine, processedFileName, assetJson);
+        processedLine = checkForAssets(processedLine, processedFileName, assetJson, allSourceAssetsInfo);
         processedLine = checkForLinks(processedLine);
         [processedLine, inAdmonition, inQuote, admonition] = convertAdmonition(processedLine, inAdmonition, inQuote, admonition);
 
@@ -47,6 +52,13 @@ export default async function processMarkdown(processedFileName: string, sourceC
     return transformedContent;
 }
 
+/**
+ * This function will take care of converting obsidian link in the format [[filename|title]] to markdown format \[title](path).
+ * This will convert both links to other notes and links to other images
+ * @param line 
+ * @param fileProcessor 
+ * @returns 
+ */
 async function convertObsidianLinks(line: string, fileProcessor : FileProcessor) {
 
 	
@@ -73,19 +85,42 @@ async function convertObsidianLinks(line: string, fileProcessor : FileProcessor)
 			filenameWithExtension += ".md";
 		}
 
+		
+		//the code below handles the case the link is another note
 		//call the file processor to get the path of the file
-		const newPath = fileProcessor.getPathOfFile(filenameWithExtension);
+		let newPath : string | undefined = fileProcessor.getPathOfFile(filenameWithExtension);
 
 
 		if (newPath !== undefined) {
 			const newLine = line.replace(match[0], `[${title}](${newPath})`);
 
-			console.log("Converted link: " + line + " to " + newLine);
+			console.log("Converted note link: " + line + " to " + newLine);
 
 			return newLine;
 		} else {
-			return line;
+			//now we will handle the case the link is an image
+	
+			//call the file processor to get the path of the image
+
+			
+			newPath = fileProcessor.getPathOfImage(match[1]);
+
+			console.log("Checking path for image: " + match[1]);
+
+			if (newPath !== undefined) {
+
+				const newLine = line.replace(match[0], `![](${newPath})`);
+				console.log("Converted image link: " + line + " to " + newLine);
+				return newLine;
+
+			}else{
+				console.log("Could not find path for image: " + match[1]);
+				return line;
+			}
 		}
+
+
+
 	}
 
 	return line;
@@ -240,8 +275,49 @@ function getOrCreateSize(sizes: Size[], size: string, processedFileName: string)
     return existingSize;
 }
 
-function checkForAssets(line: string, processedFileName: string, assetJson: Asset[]): string {
+function addToAssetJson(
+	assetJson : Asset[], 
+	fileName: string, 
+	fileNameWithExtension: string | undefined, 
+	fileExtension: string,
+	path: string | undefined,
+	size: string,
+	processedFileName: string) : Size {
+
+		if(path === undefined){
+			console.log("Could not find path for asset: " + fileName);
+			throw new Error("Could not find path for asset: " + fileName);
+		}
+
+		let existingAsset = assetJson.find(item => item.fileName === fileName);
+		let existingSize: Size;
+		if (existingAsset) {
+			existingSize = getOrCreateSize(existingAsset.sizes, size, processedFileName);
+		} else {
+			existingAsset = {
+				fileName,
+				//@ts-ignore
+				originalFileName: fileNameWithExtension,
+				fileExtension,
+				dateModified: new Date().toISOString(),
+				sourcePathRelative: path,
+				sizes: []
+			};
+			//@ts-ignore
+			existingSize = getOrCreateSize(existingAsset.sizes, size, processedFileName);
+			//@ts-ignore
+			assetJson.push(existingAsset);
+		}
+
+		console.log("Added asset: " + fileName + " with size: " + size + " and path: " + path);
+
+		return existingSize;
+}
+
+function checkForAssets(line: string, processedFileName: string, assetJson: Asset[], allSourceAssetsInfo : Partial<SourceFileInfo>[]): string {
     const match = line.match(/!\[(?:\|(?<size>\d+(x\d+)?))?\]\((?<path>.*?)\)/);
+
+	console.log("DEBUG " + line)
 
     if (match && match.groups) {
         // eslint-disable-next-line prefer-const
@@ -257,25 +333,9 @@ function checkForAssets(line: string, processedFileName: string, assetJson: Asse
             size = "standard"
         }
 
-        let existingAsset = assetJson.find(item => item.fileName === fileName);
-        let existingSize: Size;
-        if (existingAsset) {
-            existingSize = getOrCreateSize(existingAsset.sizes, size, processedFileName);
-        } else {
-            existingAsset = {
-                fileName,
-                //@ts-ignore
-                originalFileName: fileNameWithExtension,
-                fileExtension,
-                dateModified: new Date().toISOString(),
-                sourcePathRelative: path,
-                sizes: []
-            };
-            //@ts-ignore
-            existingSize = getOrCreateSize(existingAsset.sizes, size, processedFileName);
-            //@ts-ignore
-            assetJson.push(existingAsset);
-        }
+		const existingSize : Size = addToAssetJson(assetJson, fileName, fileNameWithExtension, fileExtension, path, size, processedFileName);
+
+        
 
         if (["jpg", "png", "webp", "jpeg", "bmp", "gif", "svg", "excalidraw"].includes(fileExtension)) {
             line = processImage(line, fileName, fileExtension, size, existingSize);
@@ -283,6 +343,34 @@ function checkForAssets(line: string, processedFileName: string, assetJson: Asse
             line = processAsset(line, fileName, fileExtension);
         }
     }
+
+
+	//the code above handled links of the case ![filename|size](path)
+	//we also need to copy assets of the type ![[filename]]
+
+	const pattern = /(?:!)?\[\[(.*?)\]\]/;
+	const match2 = line.match(pattern);
+
+	if (match2 !== null) {
+		const filenameWithExtension : string = match2[1];
+
+		let [fileName, fileExtension] = filenameWithExtension.split('.');
+        fileName = fileName.replace(/ /g, "_");
+        fileName = fileName.replace(/%20/g, "_");
+
+		let size : string = "standard";
+
+		let path = allSourceAssetsInfo.find(item => item.fileName === filenameWithExtension)?.pathSourceRelative;
+
+		const existingSize : Size = addToAssetJson(assetJson, fileName, filenameWithExtension, fileExtension, path, size, processedFileName);
+
+		if (["jpg", "png", "webp", "jpeg", "bmp", "gif", "svg", "excalidraw"].includes(fileExtension)) {
+			line = processImage(line, fileName, fileExtension, size, existingSize);
+		} else {
+			line = processAsset(line, fileName, fileExtension);
+		}
+	}
+
     return line;
 }
 
